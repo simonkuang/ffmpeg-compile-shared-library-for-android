@@ -25,6 +25,7 @@
 
 #include "avcodec.h"
 #include "canopus.h"
+#include "get_bits.h"
 #include "internal.h"
 
 #include "hq_hqa.h"
@@ -75,7 +76,10 @@ static int hq_decode_block(HQContext *c, GetBitContext *gb, int16_t block[64],
     }
 
     for (;;) {
-        val  = get_vlc2(gb, c->hq_ac_vlc.table, 9, 2);
+        val = get_vlc2(gb, c->hq_ac_vlc.table, 9, 2);
+        if (val < 0)
+            return AVERROR_INVALIDDATA;
+
         pos += ff_hq_ac_skips[val];
         if (pos >= 64)
             break;
@@ -118,7 +122,7 @@ static int hq_decode_frame(HQContext *ctx, AVFrame *pic,
     uint32_t slice_off[21];
     int slice, start_off, next_off, i, ret;
 
-    if (prof_num >= NUM_HQ_PROFILES) {
+    if ((unsigned)prof_num >= NUM_HQ_PROFILES) {
         profile = &ff_hq_profile[0];
         avpriv_request_sample(ctx->avctx, "HQ Profile %d", prof_num);
     } else {
@@ -134,10 +138,8 @@ static int hq_decode_frame(HQContext *ctx, AVFrame *pic,
     ctx->avctx->pix_fmt             = AV_PIX_FMT_YUV422P;
 
     ret = ff_get_buffer(ctx->avctx, pic, 0);
-    if (ret < 0) {
-        av_log(ctx->avctx, AV_LOG_ERROR, "Could not allocate buffer.\n");
+    if (ret < 0)
         return ret;
-    }
 
     /* Offsets are stored from CUV position, so adjust them accordingly. */
     for (i = 0; i < profile->num_slices + 1; i++)
@@ -153,7 +155,7 @@ static int hq_decode_frame(HQContext *ctx, AVFrame *pic,
             slice_off[slice] >= slice_off[slice + 1] ||
             slice_off[slice + 1] > data_size) {
             av_log(ctx->avctx, AV_LOG_ERROR,
-                   "Invalid slice size %zu.\n", data_size);
+                   "Invalid slice size %"SIZE_SPECIFIER".\n", data_size);
             break;
         }
         init_get_bits(&gb, src + slice_off[slice],
@@ -255,7 +257,8 @@ static int hqa_decode_frame(HQContext *ctx, AVFrame *pic, size_t data_size)
 
     av_log(ctx->avctx, AV_LOG_VERBOSE, "HQA Profile\n");
 
-    quant = bytestream2_get_be32(&ctx->gbc);
+    quant = bytestream2_get_byte(&ctx->gbc);
+    bytestream2_skip(&ctx->gbc, 3);
     if (quant >= NUM_HQ_QUANTS) {
         av_log(ctx->avctx, AV_LOG_ERROR,
                "Invalid quantization matrix %d.\n", quant);
@@ -263,10 +266,8 @@ static int hqa_decode_frame(HQContext *ctx, AVFrame *pic, size_t data_size)
     }
 
     ret = ff_get_buffer(ctx->avctx, pic, 0);
-    if (ret < 0) {
-        av_log(ctx->avctx, AV_LOG_ERROR, "Could not allocate buffer.\n");
+    if (ret < 0)
         return ret;
-    }
 
     /* Offsets are stored from HQA1 position, so adjust them accordingly. */
     for (i = 0; i < num_slices + 1; i++)
@@ -277,7 +278,7 @@ static int hqa_decode_frame(HQContext *ctx, AVFrame *pic, size_t data_size)
             slice_off[slice] >= slice_off[slice + 1] ||
             slice_off[slice + 1] > data_size) {
             av_log(ctx->avctx, AV_LOG_ERROR,
-                   "Invalid slice size %zu.\n", data_size);
+                   "Invalid slice size %"SIZE_SPECIFIER".\n", data_size);
             break;
         }
         init_get_bits(&gb, src + slice_off[slice],
@@ -298,7 +299,8 @@ static int hq_hqa_decode_frame(AVCodecContext *avctx, void *data,
     AVFrame *pic = data;
     uint32_t info_tag;
     unsigned int data_size;
-    int tag, ret;
+    int ret;
+    unsigned tag;
 
     bytestream2_init(&ctx->gbc, avpkt->data, avpkt->size);
     if (bytestream2_get_bytes_left(&ctx->gbc) < 4 + 4) {
@@ -306,9 +308,11 @@ static int hq_hqa_decode_frame(AVCodecContext *avctx, void *data,
         return AVERROR_INVALIDDATA;
     }
 
-    info_tag = bytestream2_get_le32(&ctx->gbc);
+    info_tag = bytestream2_peek_le32(&ctx->gbc);
     if (info_tag == MKTAG('I', 'N', 'F', 'O')) {
-        int info_size = bytestream2_get_le32(&ctx->gbc);
+        int info_size;
+        bytestream2_skip(&ctx->gbc, 4);
+        info_size = bytestream2_get_le32(&ctx->gbc);
         if (bytestream2_get_bytes_left(&ctx->gbc) < info_size) {
             av_log(avctx, AV_LOG_ERROR, "Invalid INFO size (%d).\n", info_size);
             return AVERROR_INVALIDDATA;
@@ -378,7 +382,7 @@ AVCodec ff_hq_hqa_decoder = {
     .init           = hq_hqa_decode_init,
     .decode         = hq_hqa_decode_frame,
     .close          = hq_hqa_decode_close,
-    .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1,
     .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE |
                       FF_CODEC_CAP_INIT_CLEANUP,
 };

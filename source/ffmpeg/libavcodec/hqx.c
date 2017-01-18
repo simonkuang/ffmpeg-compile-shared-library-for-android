@@ -417,8 +417,8 @@ static int hqx_decode_frame(AVCodecContext *avctx, void *data,
 
     info_tag    = AV_RL32(src);
     if (info_tag == MKTAG('I', 'N', 'F', 'O')) {
-        int info_offset = AV_RL32(src + 4);
-        if (info_offset > UINT32_MAX - 8 || info_offset + 8 > avpkt->size) {
+        unsigned info_offset = AV_RL32(src + 4);
+        if (info_offset > INT_MAX || info_offset + 8 > avpkt->size) {
             av_log(avctx, AV_LOG_ERROR,
                    "Invalid INFO header offset: 0x%08"PRIX32" is too large.\n",
                    info_offset);
@@ -521,13 +521,10 @@ static av_cold int hqx_decode_close(AVCodecContext *avctx)
 static av_cold int hqx_decode_init(AVCodecContext *avctx)
 {
     HQXContext *ctx = avctx->priv_data;
-    int ret = ff_hqx_init_vlcs(ctx);
-    if (ret < 0)
-        hqx_decode_close(avctx);
 
     ff_hqxdsp_init(&ctx->hqxdsp);
 
-    return ret;
+    return ff_hqx_init_vlcs(ctx);
 }
 
 AVCodec ff_hqx_decoder = {
@@ -539,5 +536,7 @@ AVCodec ff_hqx_decoder = {
     .init           = hqx_decode_init,
     .decode         = hqx_decode_frame,
     .close          = hqx_decode_close,
-    .capabilities   = CODEC_CAP_DR1 | CODEC_CAP_SLICE_THREADS,
+    .capabilities   = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_SLICE_THREADS,
+    .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE |
+                      FF_CODEC_CAP_INIT_CLEANUP,
 };

@@ -26,6 +26,7 @@
 #ifndef AVCODEC_HQXDSP_H
 #define AVCODEC_HQXDSP_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct HQXDSPContext {
@@ -36,4 +37,3 @@ typedef struct HQXDSPContext {
 void ff_hqxdsp_init(HQXDSPContext *c);
 
 #endif /* AVCODEC_HQXDSP_H */
-
